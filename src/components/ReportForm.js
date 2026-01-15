@@ -1,42 +1,71 @@
 "use client";
-import CryptoJS from 'crypto-js';
 import { useState } from 'react';
 import { useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
+import CryptoJS from 'crypto-js'; 
 import { CONTRACT_ADDRESS, CONTRACT_ABI } from '../constants';
 
 export default function ReportForm() {
   const [details, setDetails] = useState('');
-  
-  // Wagmi hooks for writing to blockchain
+  const [file, setFile] = useState(null); // Store the selected file
+  const [isUploading, setIsUploading] = useState(false); // Loading state for IPFS
+
+  // Wagmi hooks
   const { data: hash, writeContract, isPending, error } = useWriteContract();
-  
-  // Wait for transaction to finish
   const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ 
     hash, 
   });
 
+  // --- 1. Helper Function to Upload to Pinata ---
+  const uploadToPinata = async (fileToUpload) => {
+    try {
+      const data = new FormData();
+      data.append("file", fileToUpload);
+
+      const res = await fetch("https://api.pinata.cloud/pinning/pinFileToIPFS", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${process.env.NEXT_PUBLIC_PINATA_JWT}`,
+        },
+        body: data,
+      });
+
+      const resData = await res.json();
+      return resData.IpfsHash; // Returns "Qm..."
+    } catch (error) {
+      console.error("Upload failed:", error);
+      alert("Failed to upload image to IPFS");
+      return null;
+    }
+  };
+
+  // --- 2. Main Submit Logic ---
   const handleSubmit = async (e) => {
     e.preventDefault();
     
-    // 1. The "Secret Key" (In a real app, this is the Authority's Public Key)
-    // For the Hackathon, we hardcode a secret phrase.
-    const SECRET_KEY = "HACKATHON_DEMO_KEY"; 
+    // A. Upload Image First (If one exists)
+    let mediaHash = "No Media";
+    
+    if (file) {
+      setIsUploading(true);
+      const ipfsHash = await uploadToPinata(file);
+      setIsUploading(false);
+      
+      if (!ipfsHash) return; // Stop if upload failed
+      mediaHash = ipfsHash;
+    }
 
-    // 2. Encrypt the text
+    // B. Encrypt Text
+    const SECRET_KEY = "HACKATHON_DEMO_KEY"; 
     const encryptedText = CryptoJS.AES.encrypt(details, SECRET_KEY).toString();
 
-    console.log("Original:", details);
-    console.log("Encrypted:", encryptedText); // Check console to see the gibberish
-
-    // 3. Send the ENCRYPTED text to the Blockchain
-    const dummyImageHash = "QmTestHash123"; 
-
+    // C. Send to Blockchain
     writeContract({
       address: CONTRACT_ADDRESS,
       abi: CONTRACT_ABI,
       functionName: 'submitReport',
-      args: [encryptedText, dummyImageHash], // <--- We send the gibberish now
-      // gas: BigInt(600000), 
+      args: [encryptedText, mediaHash], 
+      gas: BigInt(5000000),
+      // Note: We removed the hardcoded gas limit as per your fix
     });
   };
 
@@ -46,20 +75,35 @@ export default function ReportForm() {
       
       <form onSubmit={handleSubmit} className="flex flex-col gap-4">
         
+        {/* Text Area */}
         <textarea
           className="w-full p-4 bg-neutral-900 text-white rounded-lg border border-neutral-700 focus:border-red-500 outline-none h-32"
-          placeholder="Describe the incident... (This will be encrypted)"
+          placeholder="Describe the incident... (Encrypted)"
           value={details}
           onChange={(e) => setDetails(e.target.value)}
           required
         />
 
+        {/* File Input */}
+        <div className="flex flex-col gap-2">
+            <label className="text-sm text-gray-400">Attach Evidence (Optional)</label>
+            <input 
+                type="file" 
+                onChange={(e) => setFile(e.target.files[0])}
+                className="text-sm text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-red-900 file:text-red-100 hover:file:bg-red-800"
+            />
+        </div>
+
+        {/* Submit Button */}
         <button 
           type="submit"
-          disabled={isPending || isConfirming}
+          disabled={isPending || isConfirming || isUploading}
           className="w-full py-3 bg-red-600 hover:bg-red-700 text-white font-bold rounded-lg transition-all disabled:opacity-50"
         >
-          {isPending ? 'Confirm in Wallet...' : isConfirming ? 'Processing on Chain...' : 'Submit Report'}
+          {isUploading ? 'Uploading to IPFS...' : 
+           isPending ? 'Confirm in Wallet...' : 
+           isConfirming ? 'Processing on Chain...' : 
+           'Submit Report'}
         </button>
 
         {/* Status Messages */}
