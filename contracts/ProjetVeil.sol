@@ -1,58 +1,101 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.0;
+pragma solidity ^0.8.20;
 
 contract ProjectVeil {
-    
-    // --- STRUCTURES ---
+
+    // --------------------
+    // DATA STRUCTURES
+    // --------------------
+
     struct Report {
-        uint256 id;
-        address reporter;       // Who submitted it (Wallet Address)
-        string encryptedDetails; // The text report (Encrypted string)
-        string mediaHash;       // IPFS Hash for images/video
-        uint256 timestamp;      // When it happened
+        uint256 id;            // Auto-incremented report ID
+        address reporter;      // Wallet that submitted (can be anonymized later)
+        string reportCID;      // IPFS CID of encrypted JSON
+        uint256 timestamp;     // Block timestamp
     }
 
-    // --- STATE VARIABLES ---
-    Report[] public reports;    // A list of all reports
-    address public authority;   // The Admin (Police) address
+    // --------------------
+    // STATE VARIABLES
+    // --------------------
 
-    // --- EVENTS (For the frontend to listen to) ---
-    event NewReportSubmitted(uint256 indexed id, address indexed reporter, uint256 timestamp);
+    Report[] private reports;     // Stored reports (private for gas + safety)
+    address public authority;     // Admin / Authority address
 
-    // --- CONSTRUCTOR ---
-    // This runs once when we deploy the contract.
+    // --------------------
+    // EVENTS
+    // --------------------
+
+    event NewReportSubmitted(
+        uint256 indexed id,
+        address indexed reporter,
+        string reportCID,
+        uint256 timestamp
+    );
+
+    // --------------------
+    // MODIFIERS
+    // --------------------
+
+    modifier onlyAuthority() {
+        require(msg.sender == authority, "Not authorized");
+        _;
+    }
+
+    // --------------------
+    // CONSTRUCTOR
+    // --------------------
+
     constructor() {
-        authority = msg.sender; // The person who deploys this is the Authority
+        authority = msg.sender;
     }
 
-    // --- FUNCTIONS ---
+    // --------------------
+    // CORE FUNCTION
+    // --------------------
 
-    // 1. Submit a new Crime Report
-    function submitReport(string memory _encryptedDetails, string memory _mediaHash) public {
-        
-        // Create the report object
-        Report memory newReport = Report({
-            id: reports.length,
-            reporter: msg.sender,
-            encryptedDetails: _encryptedDetails,
-            mediaHash: _mediaHash,
-            timestamp: block.timestamp
-        });
+    /**
+     * @notice Submit a crime report by storing its IPFS CID
+     * @param _reportCID IPFS CID pointing to encrypted report JSON
+     */
+    function submitReport(string calldata _reportCID) external {
+        require(bytes(_reportCID).length > 0, "CID cannot be empty");
 
-        // Add to the list
-        reports.push(newReport);
+        uint256 reportId = reports.length;
 
-        // Trigger an alert (Event)
-        emit NewReportSubmitted(newReport.id, msg.sender, block.timestamp);
+        reports.push(
+            Report({
+                id: reportId,
+                reporter: msg.sender,
+                reportCID: _reportCID,
+                timestamp: block.timestamp
+            })
+        );
+
+        emit NewReportSubmitted(
+            reportId,
+            msg.sender,
+            _reportCID,
+            block.timestamp
+        );
     }
 
-    // 2. Fetch all reports (For the Dashboard)
-    function getAllReports() public view returns (Report[] memory) {
-        return reports;
-    }
+    // --------------------
+    // VIEW FUNCTIONS
+    // --------------------
 
-    // 3. Get total count of reports
-    function getReportsCount() public view returns (uint256) {
+    /// @notice Returns total number of reports
+    function getReportsCount() external view returns (uint256) {
         return reports.length;
+    }
+
+    /// @notice Returns a report by index (for dashboards)
+    function getReport(uint256 index) external view returns (Report memory) {
+        require(index < reports.length, "Invalid report index");
+        return reports[index];
+    }
+
+    /// @notice Returns all reports (authority only)
+    function getAllReports() external view onlyAuthority returns (Report[] memory) {
+        return reports;
     }
 }
