@@ -1,5 +1,5 @@
 "use client";
-import { useState } from 'react';
+import { useState, useEffect } from 'react'; // Added useEffect
 import { useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
 import CryptoJS from 'crypto-js'; 
 import { CONTRACT_ADDRESS, CONTRACT_ABI } from '../constants';
@@ -29,6 +29,7 @@ export default function ReportForm() {
   // Loading States
   const [isUploading, setIsUploading] = useState(false); 
   const [isLocating, setIsLocating] = useState(false);
+  const [debouncedLocation, setDebouncedLocation] = useState(""); // For Map smoothness
 
   // Wagmi Hooks
   const { data: hash, writeContract, isPending, error } = useWriteContract();
@@ -36,22 +37,26 @@ export default function ReportForm() {
 
   const CRIME_TYPES = ["Theft", "Violence", "Harassment", "Corruption", "Cybercrime", "Other"];
 
-  // --- NEW: AUTO-LOCATE FUNCTION ---
+  // Debounce Location Input to prevent Map flickering
+  useEffect(() => {
+    const timer = setTimeout(() => {
+        setDebouncedLocation(location);
+    }, 1000); // Update map 1 second after typing stops
+    return () => clearTimeout(timer);
+  }, [location]);
+
+  // --- AUTO-LOCATE FUNCTION ---
   const handleAutoLocate = async () => {
     setIsLocating(true);
     try {
-        // Use ipapi.co (Free, no key needed for low volume)
         const res = await fetch("https://ipapi.co/json/");
         if (!res.ok) throw new Error("Location fetch failed");
-        
         const data = await res.json();
-        // Format: "City, Region, Country"
         const locationString = `${data.city}, ${data.region}, ${data.country_name}`;
-        
         setLocation(locationString);
     } catch (error) {
         console.error("Locate Error:", error);
-        alert("Could not detect location automatically. Please enter it manually.");
+        alert("Could not detect location. Please enter manually.");
     } finally {
         setIsLocating(false);
     }
@@ -112,7 +117,7 @@ export default function ReportForm() {
                 </div>
 
                 <div className="grid md:grid-cols-2 gap-6">
-                    {/* 3. DATE & TIME (Improved Styling) */}
+                    {/* 3. DATE & TIME */}
                     <div className="space-y-3">
                         <label className="text-xs font-bold text-gray-500 uppercase tracking-wider">Time</label>
                         <div className="relative group">
@@ -124,7 +129,7 @@ export default function ReportForm() {
                         </div>
                     </div>
 
-                    {/* 4. LOCATION (With Detect Button) */}
+                    {/* 4. LOCATION + MAP PREVIEW */}
                     <div className="space-y-3">
                         <label className="text-xs font-bold text-gray-500 uppercase tracking-wider">Location</label>
                         <div className="relative flex items-center">
@@ -134,7 +139,7 @@ export default function ReportForm() {
                             <input type="text" placeholder="Approximate Area" value={location} onChange={(e) => setLocation(e.target.value)} required 
                                 className="w-full pl-12 pr-32 py-3 bg-neutral-950 text-white rounded-xl border border-neutral-800 focus:border-red-500 outline-none transition-colors" />
                             
-                            {/* THE NEW BUTTON */}
+                            {/* Auto-Detect Button */}
                             <button 
                                 type="button"
                                 onClick={handleAutoLocate}
@@ -145,6 +150,25 @@ export default function ReportForm() {
                                 {isLocating ? "Locating..." : "Auto-Detect"}
                             </button>
                         </div>
+
+                        {/* --- NEW: LIVE MAP PREVIEW --- */}
+                        {debouncedLocation.length > 3 && (
+                            <div className="mt-2 w-full h-32 bg-neutral-900 rounded-lg overflow-hidden border border-neutral-800 relative animate-in fade-in">
+                                <div className="absolute top-1 left-1 z-10 bg-black/70 px-2 py-0.5 rounded text-[10px] text-gray-300 pointer-events-none">
+                                    Location Preview
+                                </div>
+                                <iframe
+                                    width="100%"
+                                    height="100%"
+                                    frameBorder="0"
+                                    scrolling="no"
+                                    marginHeight="0"
+                                    marginWidth="0"
+                                    src={`https://maps.google.com/maps?q=${encodeURIComponent(debouncedLocation)}&t=&z=13&ie=UTF8&iwloc=&output=embed`}
+                                    style={{ filter: "invert(90%) hue-rotate(180deg) contrast(90%) opacity(0.8)" }}
+                                ></iframe>
+                            </div>
+                        )}
                     </div>
                 </div>
 
